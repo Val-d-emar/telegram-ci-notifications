@@ -58,7 +58,7 @@ jobs:
 
       - name: Notify CI status in Telegram
         if: always()
-        uses: Val-d-emar/telegram-ci-notifications@main
+        uses: Val-d-emar/telegram-ci-notifications@v1
         with:
           bot_token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           chat_id: ${{ secrets.TELEGRAM_GROUP_ID }}
