@@ -58,10 +58,19 @@ jobs:
 
       - name: Notify CI status in Telegram
         if: always()
-        uses: Val-d-emar/telegram-ci-notifications@v1
+        uses: Val-d-emar/telegram-ci-notifications@main
         with:
           bot_token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           chat_id: ${{ secrets.TELEGRAM_GROUP_ID }}
           job_status: ${{ job.status }}
           user_map: ${{ secrets.TELEGRAM_USER_MAP }}
+          # формат секрета:
+          ####################################
+          # gh_nickname=telegram_nickname
+          # gh_nickname1=telegram_nickname2
+          # ...
+          # gh_nicknameN=telegram_nicknameN
+          ####################################
+          # gh_nickname - логин в гитхабе
+          # telegram_nickname - логин в телеграме
           language: "ru"
