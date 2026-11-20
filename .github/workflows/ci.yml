@@ -39,7 +39,7 @@ jobs:
       - name: ESLint
         run: |
           # npm run lint
-          exit 0
+          exit 1
 
       - name: Prettier check
         run: |
