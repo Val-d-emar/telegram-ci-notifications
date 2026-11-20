@@ -1,0 +1,170 @@
+name: "Telegram CI Notifications"
+description: "Telegram notifications for GitHub Actions CI status"
+author: "Val-d-emar"
+branding:
+  icon: "check-circle"
+  color: "green"
+
+inputs:
+  bot_token:
+    description: "Telegram Bot Token"
+    required: true
+  chat_id:
+    description: "Telegram Chat ID"
+    required: true
+  job_status:
+    description: "Current job status (usually job.status: success, failure, cancelled)"
+    required: true
+  message_thread_id:
+    description: "Telegram Thread ID (if using supergroups with topics)"
+    required: false
+  user_map:
+    description: "Mapping of GitHub usernames to Telegram usernames (gh_nickname=tg_nickname)"
+    required: false
+  ignore_bots:
+    description: "Do not send notifications if the actor is a bot"
+    required: false
+    default: "true"
+  notify_on_success:
+    description: "Send notification when CI passes (true / false)"
+    required: false
+    default: "true"
+  language:
+    description: "Language of the notification (ru / en)"
+    required: false
+    default: "ru"
+
+runs:
+  using: "composite"
+  steps:
+    - name: Run Bash CI Notification Logic
+      shell: bash
+      env:
+        TOKEN: ${{ inputs.bot_token }}
+        CHAT_ID: ${{ inputs.chat_id }}
+        JOB_STATUS: ${{ inputs.job_status }}
+        THREAD_ID: ${{ inputs.message_thread_id }}
+        USER_MAP: ${{ inputs.user_map }}
+        IGNORE_BOTS: ${{ inputs.ignore_bots }}
+        NOTIFY_ON_SUCCESS: ${{ inputs.notify_on_success }}
+        LANG_SET: ${{ inputs.language }}
+
+        EVENT_NAME: ${{ github.event_name }}
+        ACTOR: ${{ github.actor }}
+        REPO: ${{ github.repository }}
+        WORKFLOW_NAME: ${{ github.workflow }}
+        REF_NAME: ${{ github.ref_name }}
+        HEAD_REF: ${{ github.head_ref }}
+        BASE_REF: ${{ github.base_ref }}
+        SHA: ${{ github.sha }}
+        SERVER_URL: ${{ github.server_url }}
+        RUN_ID: ${{ github.run_id }}
+
+        PR_NUM: ${{ github.event.pull_request.number }}
+        PR_TITLE: ${{ github.event.pull_request.title }}
+        PR_URL: ${{ github.event.pull_request.html_url }}
+        COMMIT_MSG: ${{ github.event.head_commit.message }}
+      run: |
+        # 1. Проверка на бота
+        if [[ "$IGNORE_BOTS" == "true" && "$ACTOR" == *"[bot]"* ]]; then
+            echo "Actor is a bot. Skipping."
+            exit 0
+        fi
+
+        # 2. Фильтр успешных сборок (если выключен notify_on_success)
+        if [[ "$JOB_STATUS" == "success" && "$NOTIFY_ON_SUCCESS" != "true" ]]; then
+            echo "CI passed and notify_on_success is false. Skipping."
+            exit 0
+        fi
+
+        # 3. Защита Telegram HTML parse_mode от символов &, <, >
+        escape_html() {
+            local s="$1"
+            s="${s//&/&amp;}"
+            s="${s//</&lt;}"
+            s="${s//>/&gt;}"
+            echo "$s"
+        }
+
+        # 4. Маппинг GitHub -> Telegram ника
+        get_tg_nick() {
+            local gh_name=$(echo "$1" | tr '[:upper:]' '[:lower:]' | xargs)
+            if [ -z "$USER_MAP" ]; then echo "@$1"; return; fi
+
+            local found=$(echo "$USER_MAP" | grep -i "^${gh_name}=" | cut -d'=' -f2 | xargs)
+            if [ -n "$found" ]; then
+                [[ "$found" != @* ]] && found="@$found"
+                echo "$found"
+            else
+                echo "@$1"
+            fi
+        }
+
+        # 5. Локализация
+        if [[ "$LANG_SET" == "en" ]]; then
+            T_SUCCESS="✅ <b>CI Passed</b>"
+            T_FAILURE="❌ <b>CI Failed!</b>"
+            T_CANCELLED="⚠️ <b>CI Cancelled</b>"
+            T_WHO="👤 Author"
+            T_BRANCH="🌿 Branch"
+            T_COMMIT="💬 Commit"
+            T_LOGS="📋 View CI Logs"
+        else
+            T_SUCCESS="✅ <b>CI Прошёл успешно</b>"
+            T_FAILURE="❌ <b>CI Упал!</b>"
+            T_CANCELLED="⚠️ <b>CI Отменён</b>"
+            T_WHO="👤 Автор"
+            T_BRANCH="🌿 Ветка"
+            T_COMMIT="💬 Коммит"
+            T_LOGS="📋 Открыть логи CI"
+        fi
+
+        if [[ "$JOB_STATUS" == "success" ]]; then
+            HEADER="$T_SUCCESS"
+        elif [[ "$JOB_STATUS" == "failure" ]]; then
+            HEADER="$T_FAILURE"
+        else
+            HEADER="$T_CANCELLED"
+        fi
+
+        ACTOR_TG=$(get_tg_nick "$ACTOR")
+        SAFE_REPO=$(escape_html "$REPO")
+        SAFE_WORKFLOW=$(escape_html "$WORKFLOW_NAME")
+        RUN_URL="${SERVER_URL}/${REPO}/actions/runs/${RUN_ID}"
+
+        # 6. Контекст: Pull Request или Push
+        if [[ -n "$PR_NUM" ]]; then
+            SAFE_BRANCH="$(escape_html "$HEAD_REF") → $(escape_html "$BASE_REF")"
+            SAFE_PR_TITLE=$(escape_html "$PR_TITLE")
+            CONTEXT_LINE="📝 <a href=\"${PR_URL}\">PR #${PR_NUM}: ${SAFE_PR_TITLE}</a>"
+        else
+            SAFE_BRANCH=$(escape_html "$REF_NAME")
+            SHORT_SHA="${SHA:0:7}"
+            FIRST_LINE_MSG=$(printf '%s' "$COMMIT_MSG" | head -n 1)
+            SAFE_MSG=$(escape_html "$FIRST_LINE_MSG")
+            CONTEXT_LINE="${T_COMMIT}: <code>${SHORT_SHA}</code> ${SAFE_MSG}"
+        fi
+
+        MESSAGE=$(echo -e "${HEADER} (<code>${SAFE_WORKFLOW}</code>)\n📦 <code>${SAFE_REPO}</code>\n${T_BRANCH}: <code>${SAFE_BRANCH}</code>\n${T_WHO}: <code>${ACTOR}</code> (${ACTOR_TG})\n${CONTEXT_LINE}\n\n<a href=\"${RUN_URL}\">${T_LOGS}</a>")
+
+        # 7. Отправка в Telegram
+        CURL_ARGS=(
+            -s -X POST "https://api.telegram.org/bot${TOKEN}/sendMessage"
+            -d "chat_id=${CHAT_ID}"
+            -d "parse_mode=HTML"
+            -d "disable_web_page_preview=true"
+            --data-urlencode "text=$MESSAGE"
+        )
+
+        if [[ -n "$THREAD_ID" ]]; then
+            CURL_ARGS+=(-d "message_thread_id=${THREAD_ID}")
+        fi
+
+        HTTP_RESPONSE=$(curl -w "%{http_code}" -o /dev/null "${CURL_ARGS[@]}")
+
+        if [[ "$HTTP_RESPONSE" != "200" ]]; then
+            echo "Error sending Telegram message! HTTP code: $HTTP_RESPONSE"
+            exit 1
+        fi
+
+        echo "CI notification successfully sent."

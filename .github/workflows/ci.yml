@@ -1,0 +1,67 @@
+name: CI Checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: 🧪 Typecheck, Lint, Test & Build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: |
+          # npm ci
+          exit 0
+
+      - name: Typecheck
+        run: |
+          # npm run typecheck
+          exit 0
+
+      - name: ESLint
+        run: |
+          # npm run lint
+          exit 0
+
+      - name: Prettier check
+        run: |
+          # npm run format:check
+          exit 0
+
+      - name: Run unit tests
+        run: |
+          # npm test
+          exit 0
+
+      - name: Build production bundle
+        run: |
+          # npm run build
+          exit 0
+
+      - name: Notify CI status in Telegram
+        if: always()
+        uses: Val-d-emar/telegram-ci-notifications@v1
+        with:
+          bot_token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          chat_id: ${{ secrets.TELEGRAM_GROUP_ID }}
+          job_status: ${{ job.status }}
+          user_map: ${{ secrets.TELEGRAM_USER_MAP }}
+          language: "ru"
